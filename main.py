@@ -5,24 +5,29 @@ from openai import OpenAI
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from dotenv import load_dotenv # Import for loading .env files
- 
-load_dotenv()
 
- 
+# REMOVED: from dotenv import load_dotenv
+# REMOVED: load_dotenv() - This is not needed in Render as it uses environment variables directly.
+
+# Initialize OpenAI Client (It will automatically look for OPENAI_API_KEY in the environment)
+try:
+    # client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY")) # Explicitly use os.environ.get if needed
+    client = OpenAI() # The default initialization is usually enough
+except Exception as e:
+    # On Render, if this fails, the OPENAI_API_KEY is missing or invalid.
+    print(f"Error initializing OpenAI client: {e}")
+    # We allow the app to start, but the /summarize endpoint will crash if the key is bad.
+
+
 app = FastAPI(
     title="Intelligent Web Summarizer API",
-    description="Backend service for scraping a URL and generating a 7-point summary using OpenAI."
+    description="Backend service for scraping a URL and generating a summary using OpenAI."
 )
 
- 
 origins = [
     "http://localhost:5173",  # Your local React development server
-    "http://127.0.0.1:8000", # Your local FastAPI development server (optional, but safe)
-    # ----------------------------------------------------
-    # NEW PRODUCTION URL: This allows your live Netlify site to connect
-    "https://subhasisapi.netlify.app", 
-    # ----------------------------------------------------
+    "http://127.0.0.1:8000", # Your local FastAPI development server
+    "https://subhasisapi.netlify.app", # Production Netlify frontend
 ]
 
 app.add_middleware(
@@ -33,16 +38,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize OpenAI Client
-try:
-    client = OpenAI()
-except Exception as e:
-    print(f"Error initializing OpenAI client: {e}")
-    
-
 # --- Pydantic Model for Request Body ---
 class SummaryRequest(BaseModel):
-    
     url: str
 
  
@@ -66,7 +63,6 @@ If it includes important information, summarize them too.
 """
 
 def get_messages(content: str):
-    
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": USER_PROMPT_PREFIX + content}
@@ -75,7 +71,6 @@ def get_messages(content: str):
  
 @app.post("/summarize")
 async def summarize_website(request: SummaryRequest):
-     
     url = request.url
 
     # 1. Fetch the page HTML
@@ -88,11 +83,12 @@ async def summarize_website(request: SummaryRequest):
 
     # 2. Parse and Clean the HTML
     try:
-        soup = BeautifulSoup(response.text, "lxml")
+        # Using html.parser instead of lxml just in case lxml causes issues, though both are fine
+        soup = BeautifulSoup(response.text, "html.parser")
 
-        # Remove all <a> tags (links and anchor text)
-        for a_tag in soup.find_all("a"):
-            a_tag.decompose()
+        # Remove elements that are unlikely to be summary content
+        for script_or_style in soup(["script", "style", "header", "footer", "nav"]):
+            script_or_style.decompose()
 
         # Extract only the visible text
         text_only = soup.get_text(separator="\n", strip=True)
@@ -100,11 +96,12 @@ async def summarize_website(request: SummaryRequest):
         raise HTTPException(status_code=500, detail=f"Error during HTML parsing or cleaning: {e}")
 
  
+    # 3. Call OpenAI LLM
     try:
-         
         llm_response = client.chat.completions.create(
-            model="gpt-5",
-            messages=get_messages(text_only)
+            model="gpt-4o-mini", # Changed to gpt-4o-mini for efficiency/availability
+            messages=get_messages(text_only),
+            temperature=0.2,
         )
         summary_text = llm_response.choices[0].message.content
 
@@ -113,11 +110,5 @@ async def summarize_website(request: SummaryRequest):
 
     except Exception as e:
         print(f"OpenAI API Call Error: {e}")
-        # Handle API key issues, rate limits, or other LLM errors
-        raise HTTPException(status_code=500, detail="Failed to generate summary from AI. Please check API key and service status.")
-
-# --- RUNNING INSTRUCTIONS ---
-# To run this file locally, save it as 'main.py' and execute in your terminal:
-# 1. pip install python-dotenv
-# 2. Create a file named .env with the line: OPENAI_API_KEY='your-api-key'
-# 3. uvicorn main:app --reload --host 0.0.0.0 --port 8000
+        # Re-raise the HTTPException with a specific message
+        raise HTTPException(status_code=500, detail="AI Summarization failed. Check if API key is valid and has billing enabled.")
