@@ -27,7 +27,8 @@ app = FastAPI(
 origins = [
     "http://localhost:5173",  # Your local React development server
     "http://127.0.0.1:8000", # Your local FastAPI development server
-    "https://subhasisapi.netlify.app", # Production Netlify frontend
+    "https://subhasisapi.netlify.app", 
+    "https://subhasiskalia.online",# vps
 ]
 
 app.add_middleware(
