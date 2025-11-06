@@ -29,7 +29,7 @@ origins = [
     "http://127.0.0.1:8000", # Your local FastAPI development server
     "https://subhasisapi.netlify.app", 
     "https://subhasiskalia.online",
-    "http://103.194.228.189:3000,
+    "http://103.194.228.189:3000",
 ]
 
 app.add_middleware(
